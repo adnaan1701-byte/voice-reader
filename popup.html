@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Voice Reader</title>
+<style>
+  *{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,system-ui,sans-serif}
+  body{margin:0;width:340px;background:#f6f6fb;color:#1c1c28;font-size:13px}
+  header{display:flex;align-items:center;gap:10px;padding:14px 16px;background:linear-gradient(135deg,#6d5cff,#2fa8ff);color:#fff}
+  header img{width:30px;height:30px}
+  header b{font-size:16px;display:block}
+  header small{opacity:.85;font-size:11.5px}
+  main{padding:12px 14px 14px}
+  .label{font-size:11px;font-weight:700;color:#8a8aa0;text-transform:uppercase;letter-spacing:.6px;margin:10px 2px 6px}
+  .actions{display:grid;grid-template-columns:1fr auto auto;gap:6px}
+  button{font:inherit;border:0;cursor:pointer;border-radius:10px}
+  .primary{height:36px;background:linear-gradient(135deg,#6d5cff,#2fa8ff);color:#fff;font-weight:700}
+  .ghost{height:36px;padding:0 12px;background:#fff;color:#333;font-weight:600;box-shadow:0 0 0 1px #e2e2ec inset}
+  .ghost:hover{background:#efeefe}
+  .vlist{display:flex;flex-direction:column;gap:5px}
+  .v{display:flex;align-items:center;gap:10px;padding:8px 9px;background:#fff;border-radius:12px;border:1.5px solid #ececf4;cursor:pointer}
+  .v:hover{border-color:#cfcaff}
+  .v.sel{border-color:#7c70ff;background:#f3f1ff}
+  .av{flex:none;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--c);color:#fff;font-weight:700}
+  .av.jarvis{background:radial-gradient(circle,#0d2a44,#06121f 75%);color:#36b8ff;padding:3px;box-shadow:0 0 9px rgba(54,184,255,.6)}
+  .av svg{width:100%;height:100%}
+  .t{flex:1;min-width:0;line-height:1.25}
+  .t b{font-size:13.5px}
+  .t small{display:block;color:#7a7a90;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .g{font-size:10px;font-weight:700;padding:2px 6px;border-radius:99px;background:#ffe6f1;color:#d63c80}
+  .g.male{background:#e2f2ff;color:#1f7fcf}
+  .test{width:30px;height:30px;border-radius:50%;background:#f1f1f7;color:#4b3fe0;font-size:12px}
+  .test:hover{background:#e3e0ff}
+  .srow{display:flex;align-items:center;gap:10px;background:#fff;border-radius:12px;padding:9px 12px;border:1.5px solid #ececf4}
+  .srow input{flex:1;accent-color:#6d5cff}
+  .sval{font-weight:700;color:#4b3fe0;min-width:44px;text-align:right}
+  .toggle{display:flex;align-items:center;justify-content:space-between;background:#fff;border-radius:12px;padding:10px 12px;border:1.5px solid #ececf4;margin-top:8px;cursor:pointer}
+  .toggle input{width:16px;height:16px;accent-color:#6d5cff}
+  details{margin-top:10px;background:#fff;border-radius:12px;border:1.5px solid #ececf4;padding:8px 12px}
+  summary{cursor:pointer;font-weight:600;color:#444}
+  .map{display:grid;grid-template-columns:62px 1fr;gap:6px 8px;align-items:center;margin-top:8px}
+  .map select{width:100%;font:inherit;font-size:12px;padding:4px;border-radius:7px;border:1px solid #d9d9e6;background:#fff}
+  .hint{color:#8a8aa0;font-size:11.5px;line-height:1.45;margin-top:8px}
+  kbd{background:#fff;border:1px solid #d9d9e6;border-bottom-width:2px;border-radius:5px;padding:0 4px;font-size:10.5px;font-family:inherit}
+  .warn{background:#fff6e5;color:#8a5a00;border-radius:10px;padding:8px 10px;font-size:12px;margin-top:8px;display:none}
+</style>
+</head>
+<body>
+  <header>
+    <img src="icons/icon48.png" alt="">
+    <div><b>Voice Reader</b><small>Highlight text → click “Read aloud”</small></div>
+  </header>
+  <main>
+    <div class="actions">
+      <button class="primary" id="read">▶ Read selection / page</button>
+      <button class="ghost" id="toggle" title="Pause / resume">⏯</button>
+      <button class="ghost" id="stop" title="Stop">■</button>
+    </div>
+    <div class="warn" id="warn">This page is protected by the browser (e.g. settings, Web Store, built-in PDF viewer), so Voice Reader can’t run here.</div>
+
+    <div class="label">Default voice</div>
+    <div class="vlist" id="voices"></div>
+
+    <div class="label">Reading speed</div>
+    <div class="srow"><span>🐢</span><input id="rate" type="range" min="0.5" max="3" step="0.05"><span>🐇</span><span class="sval" id="rateVal"></span></div>
+
+    <label class="toggle"><span>Show “Read aloud” button when I highlight text</span><input type="checkbox" id="bubble"></label>
+
+    <details>
+      <summary>Advanced: pick the exact system voice</summary>
+      <div class="map" id="map"></div>
+      <div class="hint">Tip: for the most natural voices use Microsoft Edge (Natural voices like “Ryan” suit Jarvis) or Chrome’s “Google UK English Male”. Mac: “Daniel”.</div>
+    </details>
+
+    <div class="hint">Shortcuts: <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> read · <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> pause · <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> stop. You can also drag the player anywhere on the page.</div>
+  </main>
+  <script src="voices.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

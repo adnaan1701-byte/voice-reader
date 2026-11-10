@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "Voice Reader — Free Text to Speech",
+  "short_name": "Voice Reader",
+  "version": "1.0.0",
+  "description": "Highlight any text and have it read aloud with 5 voices (incl. a Jarvis-style AI butler). Adjustable speed, draggable player. 100% free.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Voice Reader",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["storage", "contextMenus", "activeTab", "scripting"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["voices.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "commands": {
+    "read-selection": {
+      "suggested_key": { "default": "Alt+Shift+R" },
+      "description": "Read highlighted text aloud"
+    },
+    "toggle-pause": {
+      "suggested_key": { "default": "Alt+Shift+P" },
+      "description": "Pause / resume reading"
+    },
+    "stop-reading": {
+      "suggested_key": { "default": "Alt+Shift+S" },
+      "description": "Stop reading"
+    }
+  }
+}
