@@ -23,6 +23,18 @@ They use the free voices built into your browser and computer. For the best qual
 - On a Mac, Jarvis uses "Daniel".
 In the popup, open "Advanced" to pick the exact system voice for any of the five presets.
 
+RENAME THE VOICES (optional)
+You can give each voice any name you like:
+1. Open the extension folder and open "voices.js" with Notepad (or any text editor).
+2. Near the top you'll find five lines like this:
+     id: 'aria', name: 'Aria', gender: 'female', lang: 'en-US', tag: 'Warm American',
+3. Change the text inside name: '...' to your new name, for example name: 'Khalid'.
+   You can also change tag: '...' (the short description shown under the name).
+4. Do NOT change id: '...'. The extension uses it internally.
+5. Keep the quote marks around the name. name: 'Khalid' works, but name: Khalid will break the extension.
+6. Save the file, go to chrome://extensions, click the reload icon on Voice Reader, then refresh your page.
+The round avatar updates automatically to show the first letter of the new name.
+
 LIMITS
 Browsers block extensions on their own pages (chrome:// pages, the Web Store and the built-in PDF viewer).
 Google Docs draws its text in a way that page readers can't access, so use right-click > Read aloud there or copy the text.
