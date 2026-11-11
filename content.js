@@ -9,7 +9,7 @@
   document.getElementById(ROOT_ID)?.remove(); // leftover from a reloaded extension
 
   /* ---------------- settings ---------------- */
-  const DEFAULTS = { voice: 'aria', rate: 1, showBubble: true, overrides: {}, pos: null };
+  const DEFAULTS = { voice: 'aria', rate: 1, showBubble: true, readSymbols: true, overrides: {}, pos: null };
   let S = { ...DEFAULTS };
   let voiceMap = {};
   let pending = {}, saveTimer = null;
@@ -28,8 +28,8 @@
       for (const k in ch) S[k] = ch[k].newValue;
       if (ch.overrides) refreshVoices();
       renderAll();
-      if ((ch.rate || ch.voice || ch.overrides) && R.applied &&
-          (R.applied.rate !== S.rate || R.applied.voice !== S.voice || ch.overrides)) R.restart();
+      if ((ch.rate || ch.voice || ch.overrides || ch.readSymbols) && R.applied &&
+          (R.applied.rate !== S.rate || R.applied.voice !== S.voice || ch.overrides || ch.readSymbols)) R.restart();
     });
   } catch (e) {}
 
@@ -40,6 +40,115 @@
   const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
   const fmtRate = r => { r = Math.round(r * 100) / 100; return (Math.abs(r * 10 - Math.round(r * 10)) < 1e-6 ? r.toFixed(1) : r.toFixed(2)) + 'x'; };
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+
+  /* ---------------- code-aware reading ---------------- */
+  // BEGIN-SPEAKABLE
+  // Turns file names, paths, commands, IPs and URLs into words so they are read
+  // symbol by symbol ("login.html" -> "login dot H T M L") instead of pausing at the dot.
+  const SYM = { '.': 'dot', '/': 'slash', '\\': 'backslash', '_': 'underscore', '-': 'dash', ':': 'colon',
+    '@': 'at', '=': 'equals', '|': 'pipe', '>': 'greater than', '<': 'less than', '{': 'open brace',
+    '}': 'close brace', '[': 'open bracket', ']': 'close bracket', '$': 'dollar', '~': 'tilde', '*': 'star',
+    '#': 'hash', '&': 'and', '%': 'percent', '+': 'plus', ';': 'semicolon', '?': 'question mark',
+    '^': 'caret', '!': 'bang', ',': 'comma' };
+  const SAY = { exe: 'E X E', dll: 'D L L', lnk: 'L N K', ps1: 'P S 1', sh: 'S H', py: 'P Y', js: 'J S',
+    json: 'Jason', html: 'H T M L', htm: 'H T M', css: 'C S S', php: 'P H P', sql: 'S Q L', txt: 'text',
+    md: 'M D', csv: 'C S V', xml: 'X M L', pdf: 'P D F', cmd: 'C M D', ssh: 'S S H', http: 'H T T P',
+    https: 'H T T P S', www: 'W W W', etc: 'E T C', usr: 'user', tmp: 'temp', src: 'source', ftp: 'F T P',
+    smb: 'S M B', tcp: 'T C P', udp: 'U D P', dns: 'D N S', ip: 'I P', url: 'U R L', vbs: 'V B S',
+    hta: 'H T A', msi: 'M S I', iso: 'I S O', jpg: 'J peg', png: 'P N G', docx: 'doc X', xlsx: 'X L S X',
+    yml: 'yaml', cfg: 'config', conf: 'conf', db: 'D B', pcap: 'P cap', ovpn: 'O V P N', id_rsa: 'I D R S A' };
+  const LEAD = /^[(\[{"'`“‘]+/;
+  const TRAIL = /[)\]}"'`”’.,;:!?]+$/;
+  const SILENT = /[()'"`“”‘’]/;
+  const IS_ABBREV = /^([A-Za-z]\.)+[A-Za-z]?$/;
+  const IS_NUMBER = /^([$€£]?\d{1,3}(,\d{3})+(\.\d+)?%?|[$€£]?\d+(\.\d+)?%?|\d{1,2}:\d{2}(:\d{2})?|\d+(st|nd|rd|th))$/i;
+  const HAS_SYMBOL = /[.\/\\_:@=|<>{}\[\]$~*#&%+;?^!]/;
+
+  function isTechnical(core) {
+    if (!core || IS_ABBREV.test(core) || IS_NUMBER.test(core)) return false;
+    if (/^[^\w\s]+$/.test(core)) return core.length <= 4 && /[|<>&;=$*~]/.test(core); // |, >, &&, >>, 2>&1 etc.
+    if (/^-{1,2}[A-Za-z]/.test(core)) return true;                                   // -c, --help
+    if (/^(\.{0,2}[\/\\~]|[$%])/.test(core)) return true;                            // /etc, ./run, ~/x, $HOME
+    return HAS_SYMBOL.test(core);                                                   // login.html, a@b.c, 10.10.1.5
+  }
+  function wordOut(w) {
+    const low = w.toLowerCase();
+    if (SAY[low]) return SAY[low];
+    return w.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2');
+  }
+  function spellCode(core) {
+    const out = [];
+    let word = '';
+    const flush = () => { if (word) { out.push(wordOut(word)); word = ''; } };
+    for (const ch of core) {
+      if (/[A-Za-z0-9]/.test(ch)) { word += ch; continue; }
+      flush();
+      if (SILENT.test(ch)) continue;
+      if (SYM[ch]) out.push(SYM[ch]);
+    }
+    flush();
+    return out.join(' ');
+  }
+  // Returns the text to speak plus a map back to positions in the original text.
+  function speakable(text) {
+    let spoken = '';
+    const map = [];
+    const re = /\S+|\s+/g;
+    let m;
+    while ((m = re.exec(text))) {
+      const tok = m[0];
+      map.push([spoken.length, m.index]);
+      if (/^\s/.test(tok)) { spoken += ' '; continue; }
+      const lead = (tok.match(LEAD) || [''])[0];
+      let rest = tok.slice(lead.length);
+      let trail = (rest.match(TRAIL) || [''])[0];
+      let core = rest.slice(0, rest.length - trail.length);
+      if (!core && rest) { core = rest; trail = ''; }
+      if (isTechnical(core)) {
+        const t = trail.replace(/[)\]}"'`”’]/g, '');
+        spoken += spellCode(core) + (t ? t[0] : '');
+      } else {
+        spoken += tok;
+      }
+    }
+    return { text: spoken, map };
+  }
+  function mapBack(map, i) {
+    if (!map) return i;
+    let lo = 0, hi = map.length - 1, best = 0;
+    while (lo <= hi) { const mid = (lo + hi) >> 1; if (map[mid][0] <= i) { best = mid; lo = mid + 1; } else hi = mid - 1; }
+    return map[best][1];
+  }
+  // Sentence splitter that only breaks on . ! ? followed by a space (so login.html stays whole).
+  function chunkText(text, max = 180) {
+    const paragraphs = String(text || '').split(/\r?\n/).map(s => s.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const out = [];
+    for (const para of paragraphs) {
+      const pieces = [];
+      for (let s of para.split(/(?<=[.!?。！？]["'”’)\]]*)\s+/)) {
+        s = s.trim();
+        if (!s) continue;
+        while (s.length > max) {
+          let cut = Math.max(s.lastIndexOf(', ', max), s.lastIndexOf('; ', max));
+          if (cut < max * 0.4) cut = s.lastIndexOf(' ', max);
+          if (cut < max * 0.3) cut = max - 1;
+          pieces.push(s.slice(0, cut + 1).trim());
+          s = s.slice(cut + 1).trim();
+        }
+        if (s) pieces.push(s);
+      }
+      const merged = [];
+      for (const s of pieces) {
+        const last = merged[merged.length - 1];
+        if (last && last.length < 60 && last.length + s.length < 150) merged[merged.length - 1] = last + ' ' + s;
+        else merged.push(s);
+      }
+      out.push(...merged);
+    }
+    return out;
+  }
+  // END-SPEAKABLE
 
   /* ---------------- speech engine ---------------- */
   // Some voices have a top speed. Google's voices in Chrome stop working above 2x.
@@ -57,7 +166,7 @@
     token: 0, utter: null, keepAlive: null, applied: null,
 
     start(text) {
-      const chunks = VR.chunk(text);
+      const chunks = chunkText(text);
       if (!chunks.length) return;
       this.token++;
       speechSynthesis.cancel();
@@ -76,8 +185,10 @@
       speechSynthesis.cancel();
       if (this.idx >= this.chunks.length) return this.finish();
       const full = this.chunks[this.idx];
-      const text = full.slice(this.offset);
-      if (!text.trim()) { this.idx++; this.offset = 0; return this.speak(); }
+      const src = full.slice(this.offset);
+      if (!src.trim()) { this.idx++; this.offset = 0; return this.speak(); }
+      const sp = S.readSymbols !== false ? speakable(src) : { text: src, map: null };
+      const text = sp.text;
       this.boundary = this.offset;
       const p = VR.preset(S.voice);
       const v = voiceMap[p.id];
@@ -91,7 +202,7 @@
       u.volume = 1;
       u.onboundary = e => {
         if (t !== this.token || (e.name && e.name !== 'word')) return;
-        this.boundary = this.offset + e.charIndex;
+        this.boundary = this.offset + mapBack(sp.map, e.charIndex);
         updateProgress();
       };
       u.onend = () => { if (t !== this.token) return; this.idx++; this.offset = 0; this.speak(); };
@@ -197,10 +308,13 @@
     .card{background:#fff;color:#1c1c28;border-radius:16px;box-shadow:0 14px 44px rgba(18,18,60,.22),0 0 0 1px rgba(10,10,40,.07)}
     @keyframes pop{from{transform:scale(.85) translateY(4px);opacity:0}to{transform:none;opacity:1}}
 
-    .bubble{position:fixed;display:flex;align-items:center;gap:7px;height:34px;padding:0 13px 0 10px;border-radius:999px;
+    .bubble{position:fixed;display:flex;align-items:stretch;height:34px;border-radius:999px;overflow:hidden;
       background:linear-gradient(135deg,#6d5cff,#2fa8ff);color:#fff;font-size:13px;font-weight:600;letter-spacing:.1px;
       box-shadow:0 8px 22px rgba(60,70,200,.38);animation:pop .14s ease-out;white-space:nowrap}
-    .bubble:hover{filter:brightness(1.08);transform:translateY(-1px)}
+    .bubble button{display:flex;align-items:center;gap:7px;color:#fff;font-weight:600}
+    .bmain{padding:0 11px 0 10px}
+    .bopt{width:28px;justify-content:center;padding:0 7px 0 5px;border-left:1px solid rgba(255,255,255,.35)!important}
+    .bubble button:hover{background:rgba(255,255,255,.16)}
     .bubble .ic{width:18px;height:18px}
 
     .menu{position:fixed;width:300px;padding:14px;animation:pop .15s ease-out}
@@ -274,7 +388,10 @@
       .g{background:#4a2338;color:#ff8fc0}.g.male{background:#1e3550;color:#7cc3ff}
     }
   </style>
-  <button class="bubble hidden" data-act="openMenu" title="Read aloud"><span class="ic">${I.speaker}</span>Read aloud</button>
+  <div class="bubble hidden">
+    <button class="bmain" data-act="readNow" title="Read aloud with your saved voice &amp; speed"><span class="ic">${I.speaker}</span>Read aloud</button>
+    <button class="bopt" data-act="openMenu" title="Choose voice &amp; speed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10l5 5 5-5"/></svg></button>
+  </div>
 
   <div class="menu card hidden">
     <div class="mh"><span class="ic">${I.speaker}</span><b>Read aloud</b><button class="xbtn" data-act="closeMenu" title="Close">${I.close}</button></div>
@@ -312,7 +429,9 @@
     <div class="srow"><input type="range" min="0.5" max="3" step="0.05" data-rate-slider><span class="sval"></span></div>
     <div class="chips" data-chips></div>
   </div>`;
-  (document.body || document.documentElement).appendChild(host);
+  document.documentElement.appendChild(host);
+  new MutationObserver(() => { if (!host.isConnected) document.documentElement.appendChild(host); })
+    .observe(document.documentElement, { childList: true });
 
   const $ = s => root.querySelector(s);
   const $$ = s => [...root.querySelectorAll(s)];
@@ -497,14 +616,35 @@
     if (inUI(e)) return;
     hideBubble(); closeMenu(); closePops();
   }, true);
-  document.addEventListener('scroll', () => hideBubble(), { capture: true, passive: true });
+  let lastUIPress = 0;
+  const justPressedUI = () => Date.now() - lastUIPress < 600;
+  document.addEventListener('scroll', () => { if (!justPressedUI()) hideBubble(); }, { capture: true, passive: true });
   document.addEventListener('selectionchange', () => {
-    if (!menuOpen() && !bubble.classList.contains('hidden') && !getSelectedText()) hideBubble();
+    if (justPressedUI()) return;
+    setTimeout(() => {
+      if (!justPressedUI() && !menuOpen() && !bubble.classList.contains('hidden') && !getSelectedText()) hideBubble();
+    }, 150);
   });
   root.addEventListener('keyup', e => { if (e.key === 'Escape') { closeMenu(); closePops(); } });
 
-  // Keep the page's text highlighted when clicking our buttons.
-  root.addEventListener('mousedown', e => { if (!e.target.closest('input')) e.preventDefault(); });
+  // Keep the page's text highlighted when clicking our buttons, and keep the page's own
+  // click handlers (e.g. TryHackMe) from reacting to clicks on our UI.
+  root.addEventListener('mousedown', e => { if (!e.target.closest('input')) e.preventDefault(); e.stopPropagation(); });
+  ['mouseup', 'click', 'pointerup', 'touchstart', 'touchend'].forEach(t => root.addEventListener(t, e => e.stopPropagation()));
+  root.addEventListener('pointerdown', e => {
+    lastUIPress = Date.now();
+    e.stopPropagation();
+    const act = e.target.closest('.bubble [data-act]')?.dataset.act;
+    if (!act || e.button > 0) return;
+    e.preventDefault();
+    if (act === 'readNow') {               // read straight away with the saved voice & speed
+      const t = selText || getSelectedText();
+      hideBubble();
+      if (t) R.start(t);
+    } else if (act === 'openMenu') {
+      openMenu();
+    }
+  });
 
   /* ---------------- clicks ---------------- */
   root.addEventListener('click', e => {
@@ -520,7 +660,6 @@
 
     const act = e.target.closest('[data-act]')?.dataset.act;
     switch (act) {
-      case 'openMenu': openMenu(); break;
       case 'closeMenu': closeMenu(); break;
       case 'readSel': if (selText) R.start(selText); closeMenu(); break;
       case 'toggle': R.toggle(); break;

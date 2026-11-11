@@ -1,4 +1,4 @@
-const DEFAULTS = { voice: 'aria', rate: 1, showBubble: true, overrides: {}, pos: null };
+const DEFAULTS = { voice: 'aria', rate: 1, showBubble: true, readSymbols: true, overrides: {}, pos: null };
 let S = { ...DEFAULTS };
 let all = [];
 let map = {};
@@ -34,6 +34,7 @@ function render() {
   $('rate').value = S.rate;
   $('rateVal').textContent = fmt(S.rate);
   $('bubble').checked = !!S.showBubble;
+  $('symbols').checked = S.readSymbols !== false;
 
   const sorted = [...all].sort((a, b) => (/^en/i.test(b.lang) - /^en/i.test(a.lang)) || a.name.localeCompare(b.name));
   $('map').innerHTML = VR.PRESETS.map(p => {
@@ -80,6 +81,7 @@ document.addEventListener('click', e => {
 $('rate').addEventListener('input', e => { $('rateVal').textContent = fmt(parseFloat(e.target.value)); });
 $('rate').addEventListener('change', e => save({ rate: parseFloat(e.target.value) }));
 $('bubble').addEventListener('change', e => save({ showBubble: e.target.checked }));
+$('symbols').addEventListener('change', e => save({ readSymbols: e.target.checked }));
 $('map').addEventListener('change', e => {
   const sel = e.target.closest('[data-map]');
   if (!sel) return;
