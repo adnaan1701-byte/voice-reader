@@ -49,7 +49,7 @@ function preview(id) {
   const u = new SpeechSynthesisUtterance(SAMPLES[id]);
   const v = map[id];
   if (v) { u.voice = v; u.lang = v.lang; }
-  u.rate = Math.min(10, S.rate * p.rate);
+  u.rate = Math.min(v && /^google/i.test(v.name) ? 2 : 10, S.rate * p.rate);
   u.pitch = p.pitch;
   speechSynthesis.speak(u);
 }

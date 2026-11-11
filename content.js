@@ -42,6 +42,15 @@
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
   /* ---------------- speech engine ---------------- */
+  // Some voices have a top speed. Google's voices in Chrome stop working above 2x.
+  const learnedCaps = {};
+  function rateCap(v) {
+    if (!v) return 10;
+    if (learnedCaps[v.name]) return learnedCaps[v.name];
+    if (/^google/i.test(v.name)) return 2;
+    return 10;
+  }
+
   const R = {
     chunks: [], cum: [], total: 0, idx: 0, offset: 0, boundary: 0,
     state: 'idle', // idle | playing | paused | done
@@ -74,7 +83,10 @@
       const v = voiceMap[p.id];
       const u = new SpeechSynthesisUtterance(text);
       if (v) { u.voice = v; u.lang = v.lang; }
-      u.rate = clamp(S.rate * p.rate, 0.1, 10);
+      const want = S.rate * p.rate;
+      const cap = rateCap(v);
+      u.rate = clamp(Math.min(want, cap), 0.1, 10);
+      this.capped = want > cap + 0.001 ? cap : 0;
       u.pitch = p.pitch;
       u.volume = 1;
       u.onboundary = e => {
@@ -85,6 +97,8 @@
       u.onend = () => { if (t !== this.token) return; this.idx++; this.offset = 0; this.speak(); };
       u.onerror = e => {
         if (t !== this.token || e.error === 'interrupted' || e.error === 'canceled') return;
+        // Voice can't handle this speed: remember its limit and retry the same sentence slower.
+        if (v && u.rate > 2 && !learnedCaps[v.name]) { learnedCaps[v.name] = 2; return this.speak(); }
         this.idx++; this.offset = 0; this.speak();
       };
       this.utter = u; // keep a reference so it is not garbage-collected mid-speech
@@ -337,7 +351,7 @@
     player.classList.toggle('jv', p.id === 'jarvis');
     const st = $('.pstate');
     const labels = { playing: 'Reading…', paused: 'Paused', done: 'Finished · tap ▶ to replay', idle: 'Ready' };
-    st.textContent = labels[R.state];
+    st.textContent = labels[R.state] + (R.state === 'playing' && R.capped ? ` · voice max ${R.capped}x` : '');
     st.classList.toggle('live', R.state === 'playing');
     $('[data-act="toggle"]').innerHTML = R.state === 'playing' ? I.pause : I.play;
     $('.spd').textContent = fmtRate(S.rate);
